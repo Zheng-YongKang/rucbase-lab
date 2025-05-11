@@ -67,6 +67,7 @@ class BPlusTreeTests : public ::testing::Test {
         sm_->create_table(TEST_FILE_NAME, coldef, nullptr);
         sm_->create_index(TEST_FILE_NAME, TEST_COL, nullptr);
         assert(ix_manager_->exists(TEST_FILE_NAME, TEST_COL));
+        ix_manager_->close_index(sm_->ihs_[ix_manager_->get_index_name(TEST_FILE_NAME, TEST_COL)].get());
         // 打开测试文件
         ih_ = ix_manager_->open_index(TEST_FILE_NAME, TEST_COL);
         assert(ih_ != nullptr);
