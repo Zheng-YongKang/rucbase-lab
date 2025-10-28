@@ -18,7 +18,7 @@ class DiskManagerTest : public ::testing::Test {
 
    public:
     // This function is called before every test.
-    void SetUp() override {
+    void SetUp() override {     //  override 关键字表示这是重写基类的虚函数
         ::testing::Test::SetUp();
         // 对于每个测试点，创建一个disk manager
         disk_manager_ = std::make_unique<DiskManager>();

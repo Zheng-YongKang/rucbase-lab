@@ -28,7 +28,7 @@ struct RmPageHandle {
     char *bitmap;               // page->data的第二部分，存储页面的bitmap，指针指向首地址，长度为file_hdr->bitmap_size
     char *slots;                // page->data的第三部分，存储表的记录，指针指向首地址，每个slot的长度为file_hdr->record_size
 
-    RmPageHandle(const RmFileHdr *fhdr_, Page *page_) : file_hdr(fhdr_), page(page_) {
+    RmPageHandle(const RmFileHdr *fhdr_, Page *page_) : file_hdr(fhdr_), page(page_) {  // 通过page初始化其他成员
         page_hdr = reinterpret_cast<RmPageHdr *>(page->get_data() + page->OFFSET_PAGE_HDR);
         bitmap = page->get_data() + sizeof(RmPageHdr) + page->OFFSET_PAGE_HDR;
         slots = bitmap + file_hdr->bitmap_size;
@@ -71,22 +71,22 @@ class RmFileHandle {
         return Bitmap::is_set(page_handle.bitmap, rid.slot_no);  // page的slot_no位置上是否有record
     }
 
-    std::unique_ptr<RmRecord> get_record(const Rid &rid, Context *context) const;
+    std::unique_ptr<RmRecord> get_record(const Rid &rid, Context *context) const;   // 获取指定位置上的记录
 
-    Rid insert_record(char *buf, Context *context);
+    Rid insert_record(char *buf, Context *context);  // 插入一条记录，返回插入记录的位置
 
-    void insert_record(const Rid &rid, char *buf);
+    void insert_record(const Rid &rid, char *buf);  // 在指定位置插入一条记录
 
-    void delete_record(const Rid &rid, Context *context);
+    void delete_record(const Rid &rid, Context *context);   // 删除指定位置上的记录
 
-    void update_record(const Rid &rid, char *buf, Context *context);
+    void update_record(const Rid &rid, char *buf, Context *context);    // 更新指定位置上的记录
 
-    RmPageHandle create_new_page_handle();
+    RmPageHandle create_new_page_handle();  // 创建一个新的page handle
 
-    RmPageHandle fetch_page_handle(int page_no) const;
+    RmPageHandle fetch_page_handle(int page_no) const;  // 获取指定页面的页面句柄
 
    private:
-    RmPageHandle create_page_handle();
+    RmPageHandle create_page_handle();  // 创建或获取一个空闲的page handle
 
-    void release_page_handle(RmPageHandle &page_handle);
+    void release_page_handle(RmPageHandle &page_handle);    // 释放页面句柄
 };

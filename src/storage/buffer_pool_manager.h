@@ -31,24 +31,25 @@ class BufferPoolManager {
     std::list<frame_id_t> free_list_;   // 空闲帧编号的链表
     DiskManager *disk_manager_;
     Replacer *replacer_;    // buffer_pool的置换策略，当前赛题中为LRU置换策略
-    std::mutex latch_;      // 用于共享数据结构的并发控制
+    std::mutex latch_;      // 用于共享数据结构的并发控制，mutex是互斥量，防止竞态条件
 
    public:
     BufferPoolManager(size_t pool_size, DiskManager *disk_manager)
-        : pool_size_(pool_size), disk_manager_(disk_manager) {
+        : pool_size_(pool_size), disk_manager_(disk_manager) {  //  :是成员初始化列表
         // 为buffer pool分配一块连续的内存空间
         pages_ = new Page[pool_size_];
         // 可以被Replacer改变
-        if (REPLACER_TYPE.compare("LRU"))
+        if (REPLACER_TYPE.compare("LRU"))   // 相等的时候返回0
             replacer_ = new LRUReplacer(pool_size_);
         else if (REPLACER_TYPE.compare("CLOCK"))
             replacer_ = new LRUReplacer(pool_size_);
         else {
             replacer_ = new LRUReplacer(pool_size_);
-        }
+        }   //  这里为什么写死LRU了？
         // 初始化时，所有的page都在free_list_中
         for (size_t i = 0; i < pool_size_; ++i) {
             free_list_.emplace_back(static_cast<frame_id_t>(i));  // static_cast转换数据类型
+            // emplace_back在链表末尾原地构造/插入一个元素
         }
     }
 
@@ -64,20 +65,20 @@ class BufferPoolManager {
     static void mark_dirty(Page* page) { page->is_dirty_ = true; }
 
    public: 
-    Page* fetch_page(PageId page_id);
+    Page* fetch_page(PageId page_id);   // 把给定 page_id 的磁盘页放进缓冲池并返回对应的 Page*；若已在池中，直接返回并把它“固定”
 
-    bool unpin_page(PageId page_id, bool is_dirty);
+    bool unpin_page(PageId page_id, bool is_dirty); // 用完页面后“解固定”。可能顺便把页标脏
 
-    bool flush_page(PageId page_id);
+    bool flush_page(PageId page_id);    // 把给定 page_id 的页从缓冲池写回磁盘
 
-    Page* new_page(PageId* page_id);
+    Page* new_page(PageId* page_id);    // 分配一个新的页面
 
-    bool delete_page(PageId page_id);
+    bool delete_page(PageId page_id);   // 删除一个页面
 
-    void flush_all_pages(int fd);
+    void flush_all_pages(int fd);   // 把所有页都写回磁盘
 
    private:
-    bool find_victim_page(frame_id_t* frame_id);
+    bool find_victim_page(frame_id_t* frame_id);    // 找到一个可替换的frame
 
     // void update_page(Page* page, PageId new_page_id, frame_id_t new_frame_id);
 };

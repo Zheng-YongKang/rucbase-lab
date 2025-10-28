@@ -13,10 +13,10 @@ See the Mulan PSL v2 for more details. */
 #include "defs.h"
 #include "storage/buffer_pool_manager.h"
 
-constexpr int RM_NO_PAGE = -1;
-constexpr int RM_FILE_HDR_PAGE = 0;
-constexpr int RM_FIRST_RECORD_PAGE = 1;
-constexpr int RM_MAX_RECORD_SIZE = 512;
+constexpr int RM_NO_PAGE = -1;              // 无效页
+constexpr int RM_FILE_HDR_PAGE = 0;         // 文件头页，存储全局信息
+constexpr int RM_FIRST_RECORD_PAGE = 1;     // 真正存放数据的页
+constexpr int RM_MAX_RECORD_SIZE = 512;     // 单挑记录最大长度
 
 /* 文件头，记录表数据文件的元信息，写入磁盘中文件的第0号页面 */
 struct RmFileHdr {
@@ -39,9 +39,9 @@ struct RmRecord {
     int size;    // 记录的大小
     bool allocated_ = false;    // 是否已经为数据分配空间
 
-    RmRecord() = default;
+    RmRecord() = default;   // 默认版本
 
-    RmRecord(const RmRecord& other) {
+    RmRecord(const RmRecord& other) {   // 拷贝构造函数
         size = other.size;
         data = new char[size];
         memcpy(data, other.data, size);
@@ -56,13 +56,13 @@ struct RmRecord {
         return *this;
     };
 
-    RmRecord(int size_) {
+    RmRecord(int size_) {               // 只传入大小
         size = size_;
         data = new char[size_];
         allocated_ = true;
     }
 
-    RmRecord(int size_, char* data_) {
+    RmRecord(int size_, char* data_) {  // 传入大小和数据
         size = size_;
         data = new char[size_];
         memcpy(data, data_, size_);

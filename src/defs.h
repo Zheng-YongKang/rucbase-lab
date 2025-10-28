@@ -28,7 +28,7 @@ std::istream &operator>>(std::istream &is, T &enum_val) {
     return is;
 }
 
-struct Rid {
+struct Rid {    // 记录号，标识一条记录在表中的位置
     int page_no;
     int slot_no;
 

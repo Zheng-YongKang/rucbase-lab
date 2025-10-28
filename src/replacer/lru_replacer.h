@@ -27,7 +27,7 @@ class LRUReplacer : public Replacer {
      * @description: 创建一个新的LRUReplacer
      * @param {size_t} num_pages LRUReplacer最多需要存储的page数量
      */
-    explicit LRUReplacer(size_t num_pages);
+    explicit LRUReplacer(size_t num_pages);     // explicit防止隐式转换
 
     ~LRUReplacer();
 

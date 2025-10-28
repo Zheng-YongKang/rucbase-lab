@@ -28,6 +28,19 @@ bool LRUReplacer::victim(frame_id_t* frame_id) {
     //  利用lru_replacer中的LRUlist_,LRUHash_实现LRU策略
     //  选择合适的frame指定为淘汰页面,赋值给*frame_id
 
+    if (LRUlist_.empty()) {
+        frame_id = nullptr;
+        return false;
+    }
+    // 取最久未用的（链表尾）
+    auto it = std::prev(LRUlist_.end());
+    frame_id_t fid = *it;
+
+    // 删除哈希与链表中的记录
+    LRUhash_.erase(fid);
+    LRUlist_.erase(it);     // list的erase传入迭代器
+
+    *frame_id = fid;
     return true;
 }
 
@@ -40,6 +53,12 @@ void LRUReplacer::pin(frame_id_t frame_id) {
     // Todo:
     // 固定指定id的frame
     // 在数据结构中移除该frame
+    auto it = LRUhash_.find(frame_id);
+    if (it == LRUhash_.end()) {
+        return; // 已经不在候选集（要么本来就 pinned，要么不存在）
+    }
+    LRUlist_.erase(it->second); // O(1) 删除链表节点
+    LRUhash_.erase(it);
 }
 
 /**
@@ -50,6 +69,23 @@ void LRUReplacer::unpin(frame_id_t frame_id) {
     // Todo:
     //  支持并发锁
     //  选择一个frame取消固定
+    std::scoped_lock lock{latch_};
+
+    // 已经在候选集里就不用处理（避免重复）
+    if (LRUhash_.count(frame_id) != 0) {
+        return;
+    }
+
+    // 如已达容量上限，先淘汰最久未用的一个（尾部）
+    if (LRUlist_.size() == max_size_) {
+        auto it_old = std::prev(LRUlist_.end());
+        LRUhash_.erase(*it_old);
+        LRUlist_.erase(it_old);
+    }
+
+    // 插到头部（front = 最近）
+    LRUlist_.push_front(frame_id);
+    LRUhash_[frame_id] = LRUlist_.begin();
 }
 
 /**
