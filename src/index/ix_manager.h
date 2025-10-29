@@ -19,14 +19,14 @@ See the Mulan PSL v2 for more details. */
 
 class IxManager {
    private:
-    DiskManager *disk_manager_;
-    BufferPoolManager *buffer_pool_manager_;
+    DiskManager *disk_manager_;                 // 磁盘管理器指针
+    BufferPoolManager *buffer_pool_manager_;    // 缓冲池管理器指针
 
    public:
     IxManager(DiskManager *disk_manager, BufferPoolManager *buffer_pool_manager)
         : disk_manager_(disk_manager), buffer_pool_manager_(buffer_pool_manager) {}
 
-    std::string get_index_name(const std::string &filename, const std::vector<std::string>& index_cols) {
+    std::string get_index_name(const std::string &filename, const std::vector<std::string>& index_cols) {   // 如果传入的是字段名
         std::string index_name = filename;
         for(size_t i = 0; i < index_cols.size(); ++i) 
             index_name += "_" + index_cols[i];
@@ -35,7 +35,7 @@ class IxManager {
         return index_name;
     }
 
-    std::string get_index_name(const std::string &filename, const std::vector<ColMeta>& index_cols) {
+    std::string get_index_name(const std::string &filename, const std::vector<ColMeta>& index_cols) {       // 如果传入的是字段元信息
         std::string index_name = filename;
         for(size_t i = 0; i < index_cols.size(); ++i) 
             index_name += "_" + index_cols[i].name;
@@ -54,7 +54,7 @@ class IxManager {
         return disk_manager_->is_file(ix_name);
     }
 
-    void create_index(const std::string &filename, const std::vector<ColMeta>& index_cols) {
+    void create_index(const std::string &filename, const std::vector<ColMeta>& index_cols) {    // 只能传入字段元信息
         std::string ix_name = get_index_name(filename, index_cols);
         // Create index file
         disk_manager_->create_file(ix_name);
@@ -62,11 +62,11 @@ class IxManager {
         int fd = disk_manager_->open_file(ix_name);
 
         // Create file header and write to file
-        // Theoretically we have: |page_hdr| + (|attr| + |rid|) * n <= PAGE_SIZE
-        // but we reserve one slot for convenient inserting and deleting, i.e.
+        // Theoretically we have: |page_hdr| + (|attr| + |rid|) * n <= PAGE_SIZE 理论上可以存放n个键值对
+        // but we reserve one slot for convenient inserting and deleting, i.e. 预留一个空位
         // |page_hdr| + (|attr| + |rid|) * (n + 1) <= PAGE_SIZE
-        int col_tot_len = 0;
-        int col_num = index_cols.size();
+        int col_tot_len = 0;                // 索引包含的字段的总长度
+        int col_num = index_cols.size();    // 索引包含的字段数量
         for(auto& col: index_cols) {
             col_tot_len += col.len;
         }
@@ -76,7 +76,7 @@ class IxManager {
         // 根据 |page_hdr| + (|attr| + |rid|) * (n + 1) <= PAGE_SIZE 求得n的最大值btree_order
         // 即 n <= btree_order，那么btree_order就是每个结点最多可插入的键值对数量（实际还多留了一个空位，但其不可插入）
         int btree_order = static_cast<int>((PAGE_SIZE - sizeof(IxPageHdr)) / (col_tot_len + sizeof(Rid)) - 1);
-        assert(btree_order > 2);
+        assert(btree_order > 2);    // B+树至少放3个键，否则树无法正常分裂/合并
 
         // Create file header and write to file
         IxFileHdr* fhdr = new IxFileHdr(IX_NO_PAGE, IX_INIT_NUM_PAGES, IX_INIT_ROOT_PAGE,

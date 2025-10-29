@@ -85,7 +85,36 @@ void SmManager::drop_db(const std::string& db_name) {
  * @param {string&} db_name 数据库名称，与文件夹同名
  */
 void SmManager::open_db(const std::string& db_name) {
-    
+    // 检查并进入数据库目录
+    if (!is_dir(db_name)) {
+        throw DatabaseNotFoundError(db_name);
+    }
+    if (chdir(db_name.c_str()) < 0) {
+        throw UnixError();
+    }
+
+    // 读取数据库元数据（DbMeta）
+    std::ifstream ifs(DB_META_NAME);
+    if (!ifs.is_open() || !ifs.good()) {  // 元数据文件不存在或损坏
+        chdir("..");    // 离开目录再抛错，避免工作目录留在子目录
+        throw UnixError();
+    }
+    ifs >> db_;  // 将表/索引信息读入 db_
+
+    // 为每张表打开记录文件句柄，缓存到 fhs_
+    fhs_.clear();
+    ihs_.clear();
+    for (auto &entry : db_.tabs_) {
+        const std::string& tab_name = entry.first;
+        TabMeta &tab_meta = entry.second;
+        fhs_.emplace(tab_name, rm_manager_->open_file(tab_name));
+
+        // 对该表的每个索引，依次打开索引文件句柄，记录到 ihs_
+        for (auto &index_meta : tab_meta.indexes) {
+            std::string ix_name = ix_manager_->get_index_name(tab_name, index_meta.cols);
+            ihs_.emplace(ix_name, ix_manager_->open_index(tab_name, index_meta.cols));
+        }
+    }
 }
 
 /**
@@ -101,7 +130,25 @@ void SmManager::flush_meta() {
  * @description: 关闭数据库并把数据落盘
  */
 void SmManager::close_db() {
-    
+    // 先将数据库元数据写入磁盘
+    flush_meta();
+
+    // 关闭所有索引文件句柄
+    for (auto &kv : ihs_) {
+        ix_manager_->close_index(kv.second.get());
+    }
+    ihs_.clear();
+
+    // 关闭记录文件句柄
+    for (auto &kv : fhs_) {
+        rm_manager_->close_file(kv.second.get());
+    }
+    fhs_.clear();
+
+    // 回到上一级目录
+    if (chdir("..") < 0) {
+        throw UnixError();
+    }
 }
 
 /**
@@ -114,7 +161,7 @@ void SmManager::show_tables(Context* context) {
     outfile << "| Tables |\n";
     RecordPrinter printer(1);
     printer.print_separator(context);
-    printer.print_record({"Tables"}, context);
+    printer.print_record({"Tables"}, context);  // 打印表头
     printer.print_separator(context);
     for (auto &entry : db_.tabs_) {
         auto &tab = entry.second;
@@ -155,11 +202,11 @@ void SmManager::desc_table(const std::string& tab_name, Context* context) {
  * @param {Context*} context 
  */
 void SmManager::create_table(const std::string& tab_name, const std::vector<ColDef>& col_defs, Context* context) {
-    if (db_.is_table(tab_name)) {
+    if (db_.is_table(tab_name)) {   // 校验存在
         throw TableExistsError(tab_name);
     }
     // Create table meta
-    int curr_offset = 0;
+    int curr_offset = 0;    // 记录当前字段的偏移量
     TabMeta tab;
     tab.name = tab_name;
     for (auto &col_def : col_defs) {
@@ -188,7 +235,35 @@ void SmManager::create_table(const std::string& tab_name, const std::vector<ColD
  * @param {Context*} context
  */
 void SmManager::drop_table(const std::string& tab_name, Context* context) {
-    
+    // 校验存在
+    if (!db_.is_table(tab_name)) {
+        throw TableNotFoundError(tab_name);
+    }
+
+    // 如果该表已在 fhs_ 中打开，先关闭句柄
+    if (auto it = fhs_.find(tab_name); it != fhs_.end()) {
+        rm_manager_->close_file(it->second.get());
+        fhs_.erase(it);
+    }
+
+    // 关闭索引文件句柄
+    TabMeta& tab = db_.get_table(tab_name);
+    for (auto& index_meta : tab.indexes) {
+        std::string ix_name = ix_manager_->get_index_name(tab_name, index_meta.cols);
+        if (auto ih_it = ihs_.find(ix_name); ih_it != ihs_.end()) {
+            ix_manager_->close_index(ih_it->second.get());
+            ihs_.erase(ih_it);
+        }
+        // 删除索引文件
+        ix_manager_->destroy_index(tab_name, index_meta.cols);
+    }
+
+    // 删除记录文件（表数据文件）
+    rm_manager_->destroy_file(tab_name);
+
+    // 从数据库目录元数据中移除该表并落盘
+    db_.tabs_.erase(tab_name);
+    flush_meta();
 }
 
 /**

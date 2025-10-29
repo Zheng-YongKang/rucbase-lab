@@ -26,15 +26,15 @@ struct ColMeta {
     ColType type;           // 字段类型
     int len;                // 字段长度
     int offset;             // 字段位于记录中的偏移量
-    bool index;             /** unused */
+    bool index;             /** unused */   // 正常来说是索引
 
-    friend std::ostream &operator<<(std::ostream &os, const ColMeta &col) {
+    friend std::ostream &operator<<(std::ostream &os, const ColMeta &col) {     // 定义<<操作符
         // ColMeta中有各个基本类型的变量，然后调用重载的这些变量的操作符<<（具体实现逻辑在defs.h）
         return os << col.tab_name << ' ' << col.name << ' ' << col.type << ' ' << col.len << ' ' << col.offset << ' '
                   << col.index;
     }
 
-    friend std::istream &operator>>(std::istream &is, ColMeta &col) {
+    friend std::istream &operator>>(std::istream &is, ColMeta &col) {   // 定义>>操作符
         return is >> col.tab_name >> col.name >> col.type >> col.len >> col.offset >> col.index;
     }
 };
@@ -71,9 +71,9 @@ struct TabMeta {
     std::vector<ColMeta> cols;          // 表包含的字段
     std::vector<IndexMeta> indexes;     // 表上建立的索引
 
-    TabMeta(){}
+    TabMeta(){}     // 默认构造函数
 
-    TabMeta(const TabMeta &other) {
+    TabMeta(const TabMeta &other) {     // 拷贝构造函数，不拷贝索引
         name = other.name;
         for(auto col : other.cols) cols.push_back(col);
     }
