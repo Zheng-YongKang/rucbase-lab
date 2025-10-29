@@ -34,14 +34,24 @@ void RmScan::next() {
     if (is_end()) {
         return;
     }
-    for (int page_no = rid_.page_no; page_no < file_handle_->file_hdr_.num_pages; ++page_no) {
+
+    const auto &fhdr = file_handle_->file_hdr_;             // 文件头信息
+    const int last_page = fhdr.num_pages;                   // 末尾判定用
+    const int slots_per_page = fhdr.num_records_per_page;   // 每页槽位数
+
+    for (int page_no = rid_.page_no; page_no < last_page; ++page_no) {
         RmPageHandle page_handle = file_handle_->fetch_page_handle(page_no);
-        int next_slot = Bitmap::next_bit(true, page_handle.bitmap, file_handle_->file_hdr_.num_records_per_page, rid_.slot_no);
-        );
-        rid_.slot_no = -1;  // 重置slot_no以便下一个页面从0开始检查
-        file_handle_->buffer_pool_manager_->unpin_page(PageId{file_handle_->fd_, page_no}, false);
+        const int start_slot = (page_no == rid_.page_no) ? rid_.slot_no : -1;
+        int slot_no = Bitmap::next_bit(true, page_handle.bitmap, slots_per_page, start_slot);
+        file_handle_->buffer_pool_manager_->unpin_page(PageId{file_handle_->fd_, page_no}, false);  // 释放页面句柄
+        if (slot_no < slots_per_page) { // 找到下一个有记录的slot
+            rid_.page_no = page_no;
+            rid_.slot_no = slot_no;
+            return;
+        }
     }
-    rid_.page_no = file_handle_->file_hdr_.num_pages;  // 标记为无效位置
+    
+    rid_.page_no = last_page;  // 标记为无效位置
     rid_.slot_no = -1;
 }
 
