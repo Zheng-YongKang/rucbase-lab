@@ -37,6 +37,12 @@ class DeleteExecutor : public AbstractExecutor {
     }
 
     std::unique_ptr<RmRecord> Next() override {
+        // 对 rids_ 中记录的所有元组执行 DELETE
+        for (auto &rid : rids_) {
+            fh_->delete_record(rid, context_);
+        }
+
+        // DML 的 Next 只负责“把事情干完”，返回值没人用
         return nullptr;
     }
 

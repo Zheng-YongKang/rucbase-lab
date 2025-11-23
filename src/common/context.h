@@ -19,7 +19,7 @@ See the Mulan PSL v2 for more details. */
 // used for data_send
 static int const_offset = -1;
 
-class Context {
+class Context { // 把一条语句在执行过程中需要用到的关键环境都塞在一起
 public:
     Context (LockManager *lock_mgr, LogManager *log_mgr, 
             Transaction *txn, char *data_send = nullptr, int *offset = &const_offset)
@@ -29,10 +29,10 @@ public:
           }
 
     // TransactionManager *txn_mgr_;
-    LockManager *lock_mgr_;
-    LogManager *log_mgr_;
-    Transaction *txn_;
-    char *data_send_;
-    int *offset_;
-    bool ellipsis_;
+    LockManager *lock_mgr_; //  锁管理器指针
+    LogManager *log_mgr_;   // 日志管理器指针
+    Transaction *txn_;      // 当前语句对应的事务指针
+    char *data_send_;       // 用于存放返回给客户端的数据
+    int *offset_;           // 用于标识data_send_中数据的结束位置
+    bool ellipsis_;         // 用于标识输出时是否需要省略后面若干条记录
 };

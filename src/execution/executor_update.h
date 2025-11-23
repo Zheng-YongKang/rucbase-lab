@@ -17,13 +17,13 @@ See the Mulan PSL v2 for more details. */
 
 class UpdateExecutor : public AbstractExecutor {
    private:
-    TabMeta tab_;
-    std::vector<Condition> conds_;
-    RmFileHandle *fh_;
-    std::vector<Rid> rids_;
-    std::string tab_name_;
-    std::vector<SetClause> set_clauses_;
-    SmManager *sm_manager_;
+    TabMeta tab_;                       // 表的元数据
+    std::vector<Condition> conds_;      // update的条件
+    RmFileHandle *fh_;                  // 表的数据文件句柄
+    std::vector<Rid> rids_;             // 需要更新的记录的位置
+    std::string tab_name_;              // 表名
+    std::vector<SetClause> set_clauses_; // 更新的字段和值
+    SmManager *sm_manager_;             // 系统管理器指针
 
    public:
     UpdateExecutor(SmManager *sm_manager, const std::string &tab_name, std::vector<SetClause> set_clauses,
@@ -37,8 +37,27 @@ class UpdateExecutor : public AbstractExecutor {
         rids_ = rids;
         context_ = context;
     }
+
     std::unique_ptr<RmRecord> Next() override {
-        
+        // 对 rids_ 中记录的所有元组执行 UPDATE（记录文件 + 索引文件）
+        for (auto &rid : rids_) {
+            // 1. 从记录文件中读出这一条旧记录
+            auto rec = fh_->get_record(rid, context_);
+
+            // 2. 按照所有 SET 子句更新记录中的对应列
+            for (auto &set_clause : set_clauses_) {
+                // 找到要更新的列的列信息（offset / len / type）
+                auto lhs_col = tab_.get_col(set_clause.lhs.col_name);
+                // 右值在构造 set_clauses_ 时已经 init_raw 过，这里直接用 raw->data
+                memcpy(rec->data + lhs_col->offset, set_clause.rhs.raw->data, lhs_col->len);
+            }
+
+            // 3. 把修改后的记录写回记录文件
+            fh_->update_record(rid, rec->data, context_);
+
+        }
+
+        // DML 的 Next 只负责“把事情干完”，返回值没人用
         return nullptr;
     }
 

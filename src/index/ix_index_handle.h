@@ -17,6 +17,7 @@ enum class Operation { FIND = 0, INSERT, DELETE };  // 三种操作：查找、�
 
 static const bool binary_search = false;
 
+// 比较两个键值的大小，a<b返回负数，a==b返回0，a>b返回正数
 inline int ix_compare(const char *a, const char *b, ColType type, int col_len) {
     switch (type) {
         case TYPE_INT: {

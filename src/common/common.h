@@ -54,7 +54,7 @@ struct Value {
     }
 
     void init_raw(int len) {
-        assert(raw == nullptr);
+        assert(raw == nullptr);                 // 这个函数只能调用一次
         raw = std::make_shared<RmRecord>(len);
         if (type == TYPE_INT) {
             assert(len == sizeof(int));

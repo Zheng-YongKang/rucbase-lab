@@ -26,19 +26,19 @@ See the Mulan PSL v2 for more details. */
 #include "transaction/transaction_manager.h"
 
 
-class QlManager {
+class QlManager {   //  查询语言管理器，负责执行SQL语句
    private:
-    SmManager *sm_manager_;
-    TransactionManager *txn_mgr_;
+    SmManager *sm_manager_; // 系统管理器指针
+    TransactionManager *txn_mgr_;   // 事务管理器指针
 
    public:
     QlManager(SmManager *sm_manager, TransactionManager *txn_mgr) 
         : sm_manager_(sm_manager),  txn_mgr_(txn_mgr) {}
 
-    void run_mutli_query(std::shared_ptr<Plan> plan, Context *context);
-    void run_cmd_utility(std::shared_ptr<Plan> plan, txn_id_t *txn_id, Context *context);
-    void select_from(std::unique_ptr<AbstractExecutor> executorTreeRoot, std::vector<TabCol> sel_cols,
+    void run_mutli_query(std::shared_ptr<Plan> plan, Context *context);     // 主要负责执行DDL语句
+    void run_cmd_utility(std::shared_ptr<Plan> plan, txn_id_t *txn_id, Context *context);   // 执行utility语句
+    void select_from(std::unique_ptr<AbstractExecutor> executorTreeRoot, std::vector<TabCol> sel_cols,  // 执行select语句
                         Context *context);
 
-    void run_dml(std::unique_ptr<AbstractExecutor> exec);
+    void run_dml(std::unique_ptr<AbstractExecutor> exec);   // 执行DML语句
 };

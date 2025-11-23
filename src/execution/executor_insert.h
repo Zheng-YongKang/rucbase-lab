@@ -38,9 +38,9 @@ class InsertExecutor : public AbstractExecutor {
     };
 
     std::unique_ptr<RmRecord> Next() override {
-        // Make record buffer
+        // Make record buffer  构建空白缓冲区
         RmRecord rec(fh_->get_file_hdr().record_size);
-        for (size_t i = 0; i < values_.size(); i++) {
+        for (size_t i = 0; i < values_.size(); i++) {   // 将values_里的值填进这条记录
             auto &col = tab_.cols[i];
             auto &val = values_[i];
             if (col.type != val.type) {
@@ -52,7 +52,7 @@ class InsertExecutor : public AbstractExecutor {
         // Insert into record file
         rid_ = fh_->insert_record(rec.data, context_);
         
-        // Insert into index
+        // Insert into index 插入索引
         for(size_t i = 0; i < tab_.indexes.size(); ++i) {
             auto& index = tab_.indexes[i];
             auto ih = sm_manager_->ihs_.at(sm_manager_->get_ix_manager()->get_index_name(tab_name_, index.cols)).get();
