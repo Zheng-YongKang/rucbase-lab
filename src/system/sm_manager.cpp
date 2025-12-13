@@ -273,7 +273,86 @@ void SmManager::drop_table(const std::string& tab_name, Context* context) {
  * @param {Context*} context
  */
 void SmManager::create_index(const std::string& tab_name, const std::vector<std::string>& col_names, Context* context) {
-    
+    // 检查表是否存在
+    if (!db_.is_table(tab_name)) {
+        throw TableNotFoundError(tab_name);
+    }
+    TabMeta &tab = db_.get_table(tab_name);
+
+    // 检查列是否存在 & 是否已经有这个索引
+    for (const auto &col_name : col_names) {
+        if (!tab.is_col(col_name)) {
+            throw ColumnNotFoundError(col_name);
+        }
+    }
+    if (tab.is_index(col_names)) {
+        // 已经有该列组合的索引了
+        throw IndexExistsError(tab_name, col_names);
+    }
+
+    // 构造 IndexMeta
+    IndexMeta index_meta;
+    index_meta.tab_name = tab_name;
+    index_meta.col_num = static_cast<int>(col_names.size());
+    index_meta.col_tot_len = 0;
+    index_meta.cols.clear();
+
+    for (const auto &col_name : col_names) {
+        auto it = tab.get_col(col_name);
+        ColMeta col = *it;
+        col.index = true;                 // 该列上有索引
+        index_meta.cols.push_back(col);
+        index_meta.col_tot_len += col.len;
+
+        // 同时把表元数据里的对应列也标成有索引，用于 desc_table 输出
+        it->index = true;
+    }
+
+    // 先在磁盘上创建索引文件
+    ix_manager_->create_index(tab_name, index_meta.cols);
+
+    // 打开索引文件句柄，加入 ihs_ 缓存
+    std::string ix_name = ix_manager_->get_index_name(tab_name, index_meta.cols);
+    auto ih = ix_manager_->open_index(tab_name, index_meta.cols);
+    IxIndexHandle *ih_raw = ih.get();
+    ihs_.emplace(ix_name, std::move(ih));
+
+    // 把索引元数据挂到表上
+    tab.indexes.push_back(index_meta);
+
+    // 扫描整张表，为每条记录插入一条索引项
+    RmFileHandle *fh = nullptr;
+    if (auto it = fhs_.find(tab_name); it != fhs_.end()) {
+        fh = it->second.get();
+    } else {
+        // 理论上 open_db/create_table 时已经打开了，这里做个兜底
+        fhs_.emplace(tab_name, rm_manager_->open_file(tab_name));
+        fh = fhs_.at(tab_name).get();
+    }
+
+    // 按索引字段总长度构造 key 缓冲区
+    std::vector<char> key_buf(index_meta.col_tot_len);
+
+    RmScan scan(fh);
+    for (; !scan.is_end(); scan.next()) {
+        Rid rid = scan.rid();
+        // 获取记录数据
+        std::unique_ptr<RmRecord> rec = fh->get_record(rid, nullptr);
+        char *data = rec->data;
+
+        // 从记录中抽取各列，拼成联合 key
+        int offset = 0;
+        for (auto &col : index_meta.cols) {
+            memcpy(key_buf.data() + offset, data + col.offset, col.len);
+            offset += col.len;
+        }
+
+        // 插入到 B+ 树索引中
+        ih_raw->insert_entry(key_buf.data(), rid, nullptr);
+    }
+
+    // 刷新元数据到磁盘
+    flush_meta();
 }
 
 /**
@@ -283,7 +362,21 @@ void SmManager::create_index(const std::string& tab_name, const std::vector<std:
  * @param {Context*} context
  */
 void SmManager::drop_index(const std::string& tab_name, const std::vector<std::string>& col_names, Context* context) {
-    
+    // 表是否存在
+    if (!db_.is_table(tab_name)) {
+        throw TableNotFoundError(tab_name);
+    }
+    TabMeta &tab = db_.get_table(tab_name);
+
+    // 检查是否存在该索引
+    if (!tab.is_index(col_names)) {
+        throw IndexNotFoundError(tab_name, col_names);
+    }
+
+    // 根据列名拿到 IndexMeta，再调用下面那个重载
+    auto index_it = tab.get_index_meta(col_names);
+    const IndexMeta &index_meta = *index_it;
+    drop_index(tab_name, index_meta.cols, context);
 }
 
 /**
@@ -293,5 +386,54 @@ void SmManager::drop_index(const std::string& tab_name, const std::vector<std::s
  * @param {Context*} context
  */
 void SmManager::drop_index(const std::string& tab_name, const std::vector<ColMeta>& cols, Context* context) {
-    
+     // 表是否存在
+    if (!db_.is_table(tab_name)) {
+        throw TableNotFoundError(tab_name);
+    }
+    TabMeta &tab = db_.get_table(tab_name);
+
+    // 根据 cols 转成列名，找到对应 IndexMeta
+    std::vector<std::string> col_names;
+    col_names.reserve(cols.size());
+    for (const auto &c : cols) {
+        col_names.push_back(c.name);
+    }
+
+    auto index_it = tab.get_index_meta(col_names);
+    IndexMeta &index_meta = *index_it;
+
+    // 如果该索引已在 ihs_ 中打开，先关闭句柄
+    std::string ix_name = ix_manager_->get_index_name(tab_name, index_meta.cols);
+    if (auto ih_it = ihs_.find(ix_name); ih_it != ihs_.end()) {
+        ix_manager_->close_index(ih_it->second.get());
+        ihs_.erase(ih_it);
+    }
+
+    // 删除索引文件
+    ix_manager_->destroy_index(tab_name, index_meta.cols);
+
+    // 更新列上的 index 标记（如果该列不再出现在其他任何索引里，则标记为 false）
+    for (auto &col_meta : index_meta.cols) {
+        bool still_indexed = false;
+        for (auto &other_index : tab.indexes) {
+            if (&other_index == &index_meta) continue;  // 当前要删除的这个
+            for (auto &other_col : other_index.cols) {
+                if (other_col.name == col_meta.name) {
+                    still_indexed = true;
+                    break;
+                }
+            }
+            if (still_indexed) break;
+        }
+        if (!still_indexed) {
+            auto col_it = tab.get_col(col_meta.name);
+            col_it->index = false;
+        }
+    }
+
+    // 从表的索引元数据列表中删掉这一条
+    tab.indexes.erase(index_it);
+
+    // 刷新元数据到磁盘
+    flush_meta();
 }

@@ -26,6 +26,7 @@ class IxManager {
     IxManager(DiskManager *disk_manager, BufferPoolManager *buffer_pool_manager)
         : disk_manager_(disk_manager), buffer_pool_manager_(buffer_pool_manager) {}
 
+    //创建索引名称
     std::string get_index_name(const std::string &filename, const std::vector<std::string>& index_cols) {   // 如果传入的是字段名
         std::string index_name = filename;
         for(size_t i = 0; i < index_cols.size(); ++i) 
@@ -44,6 +45,7 @@ class IxManager {
         return index_name;
     }
 
+    // 查询索引是否存在
     bool exists(const std::string &filename, const std::vector<ColMeta>& index_cols) {
         auto ix_name = get_index_name(filename, index_cols);
         return disk_manager_->is_file(ix_name);
@@ -54,6 +56,7 @@ class IxManager {
         return disk_manager_->is_file(ix_name);
     }
 
+    // 创建索引
     void create_index(const std::string &filename, const std::vector<ColMeta>& index_cols) {    // 只能传入字段元信息
         std::string ix_name = get_index_name(filename, index_cols);
         // Create index file
@@ -91,8 +94,9 @@ class IxManager {
         char* data = new char[fhdr->tot_len_];
         fhdr->serialize(data);
 
-        disk_manager_->write_page(fd, IX_FILE_HDR_PAGE, data, fhdr->tot_len_);
+        disk_manager_->write_page(fd, IX_FILE_HDR_PAGE, data, fhdr->tot_len_);  // 写入第0页，文件头页
 
+        // 初始化第1页
         char page_buf[PAGE_SIZE];  // 在内存中初始化page_buf中的内容，然后将其写入磁盘
         memset(page_buf, 0, PAGE_SIZE);
         // 注意leaf header页号为1，也标记为叶子结点，其前一个/后一个叶子均指向root node

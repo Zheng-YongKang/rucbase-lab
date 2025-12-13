@@ -28,11 +28,11 @@ class IxScan : public RecScan {
     IxScan(const IxIndexHandle *ih, const Iid &lower, const Iid &upper, BufferPoolManager *bpm)
         : ih_(ih), iid_(lower), end_(upper), bpm_(bpm) {}
 
-    void next() override;
+    void next() override;   // 移动到下一个位置
 
-    bool is_end() const override { return iid_ == end_; }
+    bool is_end() const override { return iid_ == end_; }   // 判断是否到达结束位置
 
-    Rid rid() const override;
+    Rid rid() const override;   // 获取当前rid
 
-    const Iid &iid() const { return iid_; }
+    const Iid &iid() const { return iid_; } // 获取当前iid
 };

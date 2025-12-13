@@ -15,12 +15,12 @@ See the Mulan PSL v2 for more details. */
 #include "defs.h"
 #include "storage/buffer_pool_manager.h"
 
-constexpr int IX_NO_PAGE = -1;
-constexpr int IX_FILE_HDR_PAGE = 0;
-constexpr int IX_LEAF_HEADER_PAGE = 1;
-constexpr int IX_INIT_ROOT_PAGE = 2;
-constexpr int IX_INIT_NUM_PAGES = 3;
-constexpr int IX_MAX_COL_LEN = 512;
+constexpr int IX_NO_PAGE = -1;              // 没有这个页
+constexpr int IX_FILE_HDR_PAGE = 0;         // 文件头页号
+constexpr int IX_LEAF_HEADER_PAGE = 1;      // 叶子节点头页号，第一页
+constexpr int IX_INIT_ROOT_PAGE = 2;        // 初始化根节点页号，第二页
+constexpr int IX_INIT_NUM_PAGES = 3;        // 初始化页面数量。初始就三页
+constexpr int IX_MAX_COL_LEN = 512;         // 最大字段长度
 
 class IxFileHdr {
 public: 
@@ -32,7 +32,7 @@ public:
     std::vector<int> col_lens_;         // 字段的长度
     int col_tot_len_;                   // 索引包含的字段的总长度
     int btree_order_;                   // # children per page 每个结点最多可插入的键值对数量
-    int keys_size_;                     // keys_size = (btree_order + 1) * col_tot_len
+    int keys_size_;                     // keys_size = (btree_order + 1) * col_tot_len，整个key数组占用的字节数
     // first_leaf初始化之后没有进行修改，只不过是在测试文件中遍历叶子结点的时候用了
     page_id_t first_leaf_;              // 首叶节点对应的页号，在上层IxManager的open函数进行初始化，初始化为root page_no
     page_id_t last_leaf_;               // 尾叶节点对应的页号
@@ -49,13 +49,13 @@ public:
                     tot_len_ = 0;
                 } 
 
-    void update_tot_len() {
+    void update_tot_len() { // 计算IxFileHdr的大小
         tot_len_ = 0;
         tot_len_ += sizeof(page_id_t) * 4 + sizeof(int) * 6;
         tot_len_ += sizeof(ColType) * col_num_ + sizeof(int) * col_num_;
     }
 
-    void serialize(char* dest) {
+    void serialize(char* dest) {    // 把IxFileHdr序列化到dest中
         int offset = 0;
         memcpy(dest + offset, &tot_len_, sizeof(int));
         offset += sizeof(int);
@@ -88,7 +88,7 @@ public:
         assert(offset == tot_len_);
     }
 
-    void deserialize(char* src) {
+    void deserialize(char* src) {   // 从src中反序列化出IxFileHdr
         int offset = 0;
         tot_len_ = *reinterpret_cast<const int*>(src + offset);
         offset += sizeof(int);
@@ -133,14 +133,14 @@ public:
     page_id_t parent;               // 父亲节点所在页面的叶号
     int num_key;                    // # current keys (always equals to #child - 1) 已插入的keys数量，key_idx∈[0,num_key)
     bool is_leaf;                   // 是否为叶节点
-    page_id_t prev_leaf;            // previous leaf node's page_no, effective only when is_leaf is true
-    page_id_t next_leaf;            // next leaf node's page_no, effective only when is_leaf is true
+    page_id_t prev_leaf;            // previous leaf node's page_no, effective only when is_leaf is true，前一个叶子节点
+    page_id_t next_leaf;            // next leaf node's page_no, effective only when is_leaf is true，后一个叶子节点
 };
 
 class Iid {
 public:
-    int page_no;
-    int slot_no;
+    int page_no;    // 页号
+    int slot_no;    // 该页内的槽号
 
     friend bool operator==(const Iid &x, const Iid &y) { return x.page_no == y.page_no && x.slot_no == y.slot_no; }
 
