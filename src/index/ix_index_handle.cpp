@@ -257,8 +257,7 @@ int IxNodeHandle::remove(const char *key) {
     int pos = lower_bound(key);
 
     // 不存在：直接返回原大小
-    if (pos >= size ||
-        ix_compare(get_key(pos), key, file_hdr->col_types_, file_hdr->col_lens_) != 0) {
+    if (pos >= size || ix_compare(get_key(pos), key, file_hdr->col_types_, file_hdr->col_lens_) != 0) {
         return size;
     }
 
@@ -307,8 +306,7 @@ std::pair<IxNodeHandle *, bool> IxIndexHandle::find_leaf_page(const char *key, O
         // 当前是内部结点，用完就可以 unpin
         buffer_pool_manager_->unpin_page(node->get_page_id(), false);
         // 继续向下
-        node = fetch_node(child_page_no);
-    
+        node = fetch_node(child_page_no); 
     }
     Rid *dummy = nullptr;
     bool found = node->leaf_lookup(key, &dummy);

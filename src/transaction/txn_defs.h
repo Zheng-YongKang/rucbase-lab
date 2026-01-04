@@ -59,10 +59,10 @@ class WriteRecord {
     inline std::string &GetTableName() { return tab_name_; }
 
    private:
-    WType wtype_;
-    std::string tab_name_;
-    Rid rid_;
-    RmRecord record_;
+    WType wtype_;           // 写操作类型
+    std::string tab_name_;  // 表名
+    Rid rid_;               // 记录号
+    RmRecord record_;       // 记录数据
 };
 
 /* 多粒度锁，加锁对象的类型，包括记录和表 */
@@ -106,9 +106,9 @@ class LockDataId {
         if (fd_ != other.fd_) return false;
         return rid_ == other.rid_;
     }
-    int fd_;
-    Rid rid_;
-    LockDataType type_;
+    int fd_;            // 文件描述符
+    Rid rid_;           // 记录号
+    LockDataType type_; // 加锁对象类型
 };
 
 template <>
@@ -121,8 +121,8 @@ enum class AbortReason { LOCK_ON_SHIRINKING = 0, UPGRADE_CONFLICT, DEADLOCK_PREV
 
 /* 事务回滚异常，在rmdb.cpp中进行处理 */
 class TransactionAbortException : public std::exception {
-    txn_id_t txn_id_;
-    AbortReason abort_reason_;
+    txn_id_t txn_id_;           // 事务ID
+    AbortReason abort_reason_;  // 事务回滚原因
 
    public:
     explicit TransactionAbortException(txn_id_t txn_id, AbortReason abort_reason)
@@ -130,7 +130,7 @@ class TransactionAbortException : public std::exception {
 
     txn_id_t get_transaction_id() { return txn_id_; }
     AbortReason GetAbortReason() { return abort_reason_; }
-    std::string GetInfo() {
+    std::string GetInfo() {     // 返回事务回滚的具体信息
         switch (abort_reason_) {
             case AbortReason::LOCK_ON_SHIRINKING: {
                 return "Transaction " + std::to_string(txn_id_) +

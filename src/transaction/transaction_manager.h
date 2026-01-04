@@ -32,11 +32,11 @@ public:
     
     ~TransactionManager() = default;
 
-    Transaction* begin(Transaction* txn, LogManager* log_manager);
+    Transaction* begin(Transaction* txn, LogManager* log_manager);  // 创建/启动一个事务
 
-    void commit(Transaction* txn, LogManager* log_manager);
+    void commit(Transaction* txn, LogManager* log_manager);         // 提交一个事务
 
-    void abort(Transaction* txn, LogManager* log_manager);
+    void abort(Transaction* txn, LogManager* log_manager);          // 中止一个事务
 
     ConcurrencyMode get_concurrency_mode() { return concurrency_mode_; }
 
