@@ -50,6 +50,11 @@ class SeqScanExecutor : public AbstractExecutor {
      *
      */
     void beginTuple() override {
+        // 申请表级S锁
+        if (context_ != nullptr && context_->txn_->get_txn_mode()) {
+            context_->lock_mgr_->lock_shared_on_table(context_->txn_, fh_->GetFd());
+        }
+        
         scan_ = std::make_unique<RmScan>(fh_);     // 建立针对该表的记录扫描器
 
         // 从当前scan_指向的位置开始往后找，直到遇到第一条满足谓词的元组

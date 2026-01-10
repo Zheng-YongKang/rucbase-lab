@@ -39,7 +39,31 @@ class DeleteExecutor : public AbstractExecutor {
     std::unique_ptr<RmRecord> Next() override {
         // 对 rids_ 中记录的所有元组执行 DELETE
         for (auto &rid : rids_) {
+            // 获取记录（为了写日志和删索引）
+            auto rec = fh_->get_record(rid, context_);
+
+            // Delete 的回滚是 Insert，所以必须保存被删除的记录内容(rec)
+            if (context_ && context_->txn_) {
+                WriteRecord *wr = new WriteRecord(WType::DELETE_TUPLE, tab_name_, rid, *rec);
+                context_->txn_->append_write_record(wr);
+            }
+
+            // 删除记录
             fh_->delete_record(rid, context_);
+
+            // 从所有索引中删除 entry
+            for (auto& index : tab_.indexes) {
+                auto ih = sm_manager_->ihs_.at(sm_manager_->get_ix_manager()->get_index_name(tab_name_, index.cols)).get();
+
+                char* key = new char[index.col_tot_len];
+                int offset = 0;
+                for (size_t i = 0; i < index.col_num; i++) {
+                    memcpy(key + offset, rec->data + index.cols[i].offset, index.cols[i].len);
+                    offset += index.cols[i].len;
+                }
+                ih->delete_entry(key, context_->txn_);
+                delete[] key;
+            }
         }
 
         // DML 的 Next 只负责“把事情干完”，返回值没人用

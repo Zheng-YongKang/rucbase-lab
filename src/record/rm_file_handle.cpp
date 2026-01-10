@@ -9,6 +9,8 @@ MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
 See the Mulan PSL v2 for more details. */
 
 #include "rm_file_handle.h"
+#include "transaction/concurrency/lock_manager.h"
+#include "transaction/transaction.h"
 
 /**
  * @description: 获取当前表中记录号为rid的记录
@@ -20,6 +22,13 @@ std::unique_ptr<RmRecord> RmFileHandle::get_record(const Rid& rid, Context* cont
     // Todo:
     // 1. 获取指定记录所在的page handle
     // 2. 初始化一个指向RmRecord的指针（赋值其内部的data和size）
+
+    // 申请行级S锁
+    // LockManager::lock_shared_on_record 内部会自动申请 lock_IS_on_table
+    // 所以这里不需要显式调用 lock_IS_on_table
+    if (context != nullptr && context->txn_ != nullptr) {
+        context->lock_mgr_->lock_shared_on_record(context->txn_, rid, fd_);
+    }
 
     RmPageHandle page_handle = fetch_page_handle(rid.page_no);  // 获取rid.page_no对应的page handle
     if (rid.slot_no < 0 || rid.slot_no >= file_hdr_.num_records_per_page || !Bitmap::is_set(page_handle.bitmap, rid.slot_no)) {
@@ -47,6 +56,12 @@ Rid RmFileHandle::insert_record(char* buf, Context* context) {
     // 4. 更新page_handle.page_hdr中的数据结构
     // 注意考虑插入一条记录后页面已满的情况，需要更新file_hdr_.first_free_page_no
 
+    // 插入前申请表级IX锁
+    // 为了保护表结构和作为意向锁，必须在操作前先持有 IX 锁。
+    if (context != nullptr && context->txn_ != nullptr) {
+        context->lock_mgr_->lock_IX_on_table(context->txn_, fd_);
+    }
+
     RmPageHandle page_handle = create_page_handle();    // 获取当前未满的page handle
     // 使用位图查找空闲slot
     int slot_no = -1;
@@ -67,7 +82,15 @@ Rid RmFileHandle::insert_record(char* buf, Context* context) {
     }
     int page_no = page_handle.page->get_page_id().page_no;
     buffer_pool_manager_->unpin_page(PageId{fd_, page_no}, true);
-    return Rid{page_no, slot_no};
+    Rid rid{page_no, slot_no};
+
+    // 获得Rid后申请行级X锁
+    // LockManager 内部会再次检查 IX 锁，这是安全的
+    if (context != nullptr && context->txn_ != nullptr) {
+        context->lock_mgr_->lock_exclusive_on_record(context->txn_, rid, fd_);
+    }
+
+    return rid;
 }
 
 /**
@@ -124,6 +147,13 @@ void RmFileHandle::delete_record(const Rid& rid, Context* context) {
     // 2. 更新page_handle.page_hdr中的数据结构
     // 注意考虑删除一条记录后页面未满的情况，需要调用release_page_handle()
     
+    // 申请行级X锁
+    // LockManager::lock_exclusive_on_record 内部会自动申请 lock_IX_on_table
+    // 所以这里不需要显式调用 lock_IX_on_table
+    if (context != nullptr && context->txn_ != nullptr) {
+        context->lock_mgr_->lock_exclusive_on_record(context->txn_, rid, fd_);
+    }
+
     RmPageHandle page_handle = fetch_page_handle(rid.page_no);  // 获取rid.page_no对应的page handle
     if (rid.slot_no < 0 || rid.slot_no >= file_hdr_.num_records_per_page || !Bitmap::is_set(page_handle.bitmap, rid.slot_no)) {
         buffer_pool_manager_->unpin_page(PageId{fd_, rid.page_no}, false);
@@ -152,6 +182,11 @@ void RmFileHandle::update_record(const Rid& rid, char* buf, Context* context) {
     // 1. 获取指定记录所在的page handle
     // 2. 更新记录
 
+    // 申请行级X锁 (Update操作等同于写)
+    if (context != nullptr && context->txn_ != nullptr) {
+        context->lock_mgr_->lock_exclusive_on_record(context->txn_, rid, fd_);
+    }
+    
     RmPageHandle page_handle = fetch_page_handle(rid.page_no);  // 获取rid.page_no对应的page handle
     if (rid.slot_no < 0 || rid.slot_no >= file_hdr_.num_records_per_page || !Bitmap::is_set(page_handle.bitmap, rid.slot_no)) {
         buffer_pool_manager_->unpin_page(PageId{fd_, rid.page_no}, false);

@@ -19,6 +19,9 @@ See the Mulan PSL v2 for more details. */
 #include "record/rm.h"
 #include "record_printer.h"
 
+#include "transaction/concurrency/lock_manager.h"
+#include "transaction/transaction.h"
+
 /**
  * @description: 判断是否为一个文件夹
  * @return {bool} 返回是否为一个文件夹
@@ -226,6 +229,12 @@ void SmManager::create_table(const std::string& tab_name, const std::vector<ColD
     // fhs_[tab_name] = rm_manager_->open_file(tab_name);
     fhs_.emplace(tab_name, rm_manager_->open_file(tab_name));
 
+    // 申请表级X锁
+    if (context != nullptr && context->txn_->get_txn_mode()) {
+        int fd = fhs_.at(tab_name)->GetFd();
+        context->lock_mgr_->lock_exclusive_on_table(context->txn_, fd);
+    }
+
     flush_meta();
 }
 
@@ -238,6 +247,16 @@ void SmManager::drop_table(const std::string& tab_name, Context* context) {
     // 校验存在
     if (!db_.is_table(tab_name)) {
         throw TableNotFoundError(tab_name);
+    }
+
+    // 申请表级X锁 (需要先确保文件句柄已打开以获取fd)
+    if (context != nullptr && context->txn_->get_txn_mode()) {
+        // 确保文件句柄存在，以便获取fd
+        if (fhs_.find(tab_name) == fhs_.end()) {
+            fhs_.emplace(tab_name, rm_manager_->open_file(tab_name));
+        }
+        int fd = fhs_.at(tab_name)->GetFd();
+        context->lock_mgr_->lock_exclusive_on_table(context->txn_, fd);
     }
 
     // 如果该表已在 fhs_ 中打开，先关闭句柄
@@ -277,6 +296,17 @@ void SmManager::create_index(const std::string& tab_name, const std::vector<std:
     if (!db_.is_table(tab_name)) {
         throw TableNotFoundError(tab_name);
     }
+
+    // 申请表级S锁
+    if (context != nullptr && context->txn_->get_txn_mode()) {
+        // 确保文件句柄存在
+        if (fhs_.find(tab_name) == fhs_.end()) {
+            fhs_.emplace(tab_name, rm_manager_->open_file(tab_name));
+        }
+        int fd = fhs_.at(tab_name)->GetFd();
+        context->lock_mgr_->lock_shared_on_table(context->txn_, fd);
+    }
+
     TabMeta &tab = db_.get_table(tab_name);
 
     // 检查列是否存在 & 是否已经有这个索引
@@ -366,6 +396,16 @@ void SmManager::drop_index(const std::string& tab_name, const std::vector<std::s
     if (!db_.is_table(tab_name)) {
         throw TableNotFoundError(tab_name);
     }
+
+    // 申请表级S锁
+    if (context != nullptr && context->txn_->get_txn_mode()) {
+        if (fhs_.find(tab_name) == fhs_.end()) {
+            fhs_.emplace(tab_name, rm_manager_->open_file(tab_name));
+        }
+        int fd = fhs_.at(tab_name)->GetFd();
+        context->lock_mgr_->lock_shared_on_table(context->txn_, fd);
+    }
+
     TabMeta &tab = db_.get_table(tab_name);
 
     // 检查是否存在该索引

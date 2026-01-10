@@ -44,6 +44,25 @@ class UpdateExecutor : public AbstractExecutor {
             // 1. 从记录文件中读出这一条旧记录
             auto rec = fh_->get_record(rid, context_);
 
+            // Update 的回滚是 Update 回旧值，所以必须在修改 rec 之前保存它
+            if (context_ && context_->txn_) {
+                WriteRecord *wr = new WriteRecord(WType::UPDATE_TUPLE, tab_name_, rid, *rec);
+                context_->txn_->append_write_record(wr);
+            }
+
+            // 更新索引（先删除旧的 key）
+            for (const auto& index : tab_.indexes) {
+                auto ih = sm_manager_->ihs_.at(sm_manager_->get_ix_manager()->get_index_name(tab_name_, index.cols)).get();
+                char* old_key = new char[index.col_tot_len];
+                int offset = 0;
+                for (size_t i = 0; i < index.col_num; ++i) {
+                    memcpy(old_key + offset, rec->data + index.cols[i].offset, index.cols[i].len);
+                    offset += index.cols[i].len;
+                }
+                ih->delete_entry(old_key, context_->txn_);
+                delete[] old_key;
+            }
+
             // 2. 按照所有 SET 子句更新记录中的对应列
             for (auto &set_clause : set_clauses_) {
                 // 找到要更新的列的列信息（offset / len / type）
@@ -55,6 +74,18 @@ class UpdateExecutor : public AbstractExecutor {
             // 3. 把修改后的记录写回记录文件
             fh_->update_record(rid, rec->data, context_);
 
+            // 更新索引（插入新的 key）
+            for (const auto& index : tab_.indexes) {
+                auto ih = sm_manager_->ihs_.at(sm_manager_->get_ix_manager()->get_index_name(tab_name_, index.cols)).get();
+                char* new_key = new char[index.col_tot_len];
+                int offset = 0;
+                for (size_t i = 0; i < index.col_num; ++i) {
+                    memcpy(new_key + offset, rec->data + index.cols[i].offset, index.cols[i].len);
+                    offset += index.cols[i].len;
+                }
+                ih->insert_entry(new_key, rid, context_->txn_);
+                delete[] new_key;
+            }
         }
 
         // DML 的 Next 只负责“把事情干完”，返回值没人用

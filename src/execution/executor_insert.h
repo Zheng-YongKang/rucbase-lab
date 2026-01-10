@@ -51,6 +51,12 @@ class InsertExecutor : public AbstractExecutor {
         }
         // Insert into record file
         rid_ = fh_->insert_record(rec.data, context_);
+
+        // Insert 的回滚是 Delete，所以需要记录插入的位置(rid)
+        if (context_ != nullptr && context_->txn_ != nullptr) {
+            auto* wr = new WriteRecord(WType::INSERT_TUPLE, tab_name_, rid_, rec);
+            context_->txn_->append_write_record(wr);
+        }
         
         // Insert into index 插入索引
         for(size_t i = 0; i < tab_.indexes.size(); ++i) {
@@ -63,6 +69,7 @@ class InsertExecutor : public AbstractExecutor {
                 offset += index.cols[i].len;
             }
             ih->insert_entry(key, rid_, context_->txn_);
+            delete[] key;
         }
         return nullptr;
     }

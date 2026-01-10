@@ -15,6 +15,7 @@ See the Mulan PSL v2 for more details. */
 #include "executor_abstract.h"
 #include "index/ix.h"
 #include "system/sm.h"
+#include <algorithm>
 
 class IndexScanExecutor : public AbstractExecutor {
    private:
@@ -65,14 +66,135 @@ class IndexScanExecutor : public AbstractExecutor {
     }
 
     void beginTuple() override {
-        
+        // 1. 加表级S锁
+        if (context_ != nullptr && context_->txn_ != nullptr) {
+            context_->lock_mgr_->lock_shared_on_table(context_->txn_, fh_->GetFd());
+        }
+
+        // 获取索引句柄
+        auto ix_name = sm_manager_->get_ix_manager()->get_index_name(tab_name_, index_col_names_);
+        auto ih = sm_manager_->ihs_.at(ix_name).get();
+
+        // 确定扫描范围
+        Iid lower = ih->leaf_begin();
+        Iid upper = ih->leaf_end();
+
+        // 我们查找 fed_conds_ 中针对索引第一列的条件
+        for (auto &cond : fed_conds_) {
+            if (cond.lhs_col.col_name == index_col_names_[0] && cond.is_rhs_val) {
+                // 构建 Key
+                char *key = new char[index_meta_.col_tot_len];
+                memset(key, 0, index_meta_.col_tot_len);
+                
+                auto &val = cond.rhs_val;
+                if (val.type == TYPE_INT) {
+                    memcpy(key, &val.int_val, sizeof(int));
+                } else if (val.type == TYPE_FLOAT) {
+                    memcpy(key, &val.float_val, sizeof(float));
+                } else if (val.type == TYPE_STRING) {
+                    memcpy(key, val.str_val.c_str(), val.str_val.length());
+                }
+
+                // 根据操作符缩小范围
+                if (cond.op == OP_EQ) {
+                    lower = ih->lower_bound(key);
+                    upper = ih->upper_bound(key);
+                } else if (cond.op == OP_GE) {
+                    lower = ih->lower_bound(key);
+                } else if (cond.op == OP_GT) {
+                    lower = ih->upper_bound(key);
+                } else if (cond.op == OP_LT) {
+                    upper = ih->lower_bound(key);
+                } else if (cond.op == OP_LE) {
+                    upper = ih->upper_bound(key);
+                }
+                
+                delete[] key;
+                break; // 只利用第一个匹配条件
+            }
+        }
+
+        // 创建 IxScan 对象并赋值给父类指针 scan_
+        scan_ = std::make_unique<IxScan>(ih, lower, upper, sm_manager_->get_bpm());
     }
 
     void nextTuple() override {
-        
+        if (scan_) {
+            scan_->next();
+        }
     }
 
     std::unique_ptr<RmRecord> Next() override {
+        if (!scan_) {
+            beginTuple();
+        }
+
+        // 遍历 B+ 树叶子
+        while (!scan_->is_end()) {
+            // 获取当前索引指向的 RID
+            Rid rid = scan_->rid();
+            
+            // 立即移动游标到下一个位置，为下一次循环或下次调用做准备
+            nextTuple();
+
+            // 回表查询：拿到 RID 后，去记录文件查数据
+            auto rec = fh_->get_record(rid, context_);
+
+            // 行内校验所有条件
+            bool satisfy = true;
+            for (auto &cond : fed_conds_) {
+                // 获取左值数据 (LHS)
+                auto lhs_col = tab_.get_col(cond.lhs_col.col_name);
+                char *lhs = rec->data + lhs_col->offset;
+                
+                // 获取右值数据 (RHS)
+                char *rhs;
+                ColType rhs_type = lhs_col->type; // 默认类型相同
+                if (cond.is_rhs_val) {
+                    auto &val = cond.rhs_val;
+                    rhs_type = val.type;
+                    if (rhs_type == TYPE_INT) {
+                        rhs = (char *)&val.int_val;
+                    } else if (rhs_type == TYPE_FLOAT) {
+                        rhs = (char *)&val.float_val;
+                    } else { // STRING
+                        rhs = (char *)val.str_val.c_str();
+                    }
+                } else {
+                    auto rhs_col = tab_.get_col(cond.rhs_col.col_name);
+                    rhs = rec->data + rhs_col->offset;
+                    rhs_type = rhs_col->type;
+                }
+
+                // 使用全局 ix_compare 进行比较
+                int cmp_res = ix_compare(lhs, rhs, lhs_col->type, lhs_col->len);
+                
+                // 判断条件是否满足
+                bool cond_met = false;
+                switch (cond.op) {
+                    case OP_EQ: cond_met = (cmp_res == 0); break;
+                    case OP_NE: cond_met = (cmp_res != 0); break;
+                    case OP_LT: cond_met = (cmp_res < 0); break;
+                    case OP_GT: cond_met = (cmp_res > 0); break;
+                    case OP_LE: cond_met = (cmp_res <= 0); break;
+                    case OP_GE: cond_met = (cmp_res >= 0); break;
+                }
+
+                if (!cond_met) {
+                    satisfy = false;
+                    break; 
+                }
+            }
+
+            // 如果满足所有条件，返回记录
+            if (satisfy) {
+                rid_ = rid; // 更新 executor 的当前 rid
+                return rec;
+            }
+            // 如果不满足，while 循环继续，检查下一条
+        }
+
+        // 扫描结束，没有更多数据
         return nullptr;
     }
 
